@@ -1,0 +1,16 @@
+numpy
+scipy
+scikit-learn
+numba
+tqdm
+pynndescent
+matplotlib
+datashader
+holoviews
+tensorflow
+umap-learn
+hdbscan
+xgboost
+librosa
+joblib
+xgboost
