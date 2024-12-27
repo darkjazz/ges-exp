@@ -48,16 +48,18 @@ class WaveGANDiscriminator(nn.Module):
 
 
 class WaveGAN:
-    def __init__(self, snd_dir, sample_rate, waveform_scalar, epochs, batch_size, learning_rate, model_dir):
+    def __init__(self, snd_dir, sample_rate, epochs, batch_size, learning_rate, model_dir):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"device is {self.device}")
         self.snd_dir = snd_dir
         self.epochs = epochs
         self.sample_rate = sample_rate
         self.z_dim = 100  # Latent space dimension
-        self.waveform_length = sample_rate * waveform_scalar  # Length of audio waveform
+        self.waveform_length = sample_rate  # Length of audio waveform for 1 second
         self.dataset = self.load_wav_files()
         self.dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, shuffle=True)
-        self.generator = WaveGANGenerator(z_dim=self.z_dim, output_dim=self.waveform_length)
-        self.discriminator = WaveGANDiscriminator(input_dim=self.waveform_length)
+        self.generator = WaveGANGenerator(z_dim=self.z_dim, output_dim=self.waveform_length).to(self.device)
+        self.discriminator = WaveGANDiscriminator(input_dim=self.waveform_length).to(self.device)
         self.g_optimizer = optim.Adam(self.generator.parameters(), lr=learning_rate, betas=(0.5, 0.999))
         self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=learning_rate, betas=(0.5, 0.999))
         self.criterion = nn.BCELoss()
@@ -91,29 +93,27 @@ class WaveGAN:
             for real_data in self.dataloader:
                 batch_size = real_data.size(0)
 
-                # Train Discriminator
-                real_labels = torch.ones(batch_size, 1)
-                fake_labels = torch.zeros(batch_size, 1)
+                # Move data to device
+                real_data = real_data.to(self.device)
+                real_labels = torch.ones(batch_size, 1, device=self.device)
+                fake_labels = torch.zeros(batch_size, 1, device=self.device)
 
-                # Real data loss
-                real_data = real_data.view(batch_size, 1, -1)  # Reshape to (batch_size, channels, length)
+                # Train Discriminator
                 outputs = self.discriminator(real_data)
                 d_loss_real = self.criterion(outputs, real_labels)
 
-                # Fake data loss
-                z = torch.randn(batch_size, self.z_dim, 1)  # Latent vector reshaped for ConvTranspose1d
+                z = torch.randn(batch_size, self.z_dim, 1, device=self.device)
                 fake_data = self.generator(z)
                 outputs = self.discriminator(fake_data.detach())
                 d_loss_fake = self.criterion(outputs, fake_labels)
 
-                # Backpropagate total discriminator loss
                 d_loss = d_loss_real + d_loss_fake
                 self.d_optimizer.zero_grad()
                 d_loss.backward()
                 self.d_optimizer.step()
 
                 # Train Generator
-                z = torch.randn(batch_size, self.z_dim, 1)
+                z = torch.randn(batch_size, self.z_dim, 1, device=self.device)
                 fake_data = self.generator(z)
                 outputs = self.discriminator(fake_data)
                 g_loss = self.criterion(outputs, real_labels)
@@ -134,7 +134,7 @@ class WaveGAN:
 
         with torch.no_grad():  # No gradient calculation needed for generation
             for i in range(num_samples):
-                z = torch.randn(1, self.z_dim, 1)  # Generate a random latent vector
+                z = torch.randn(1, self.z_dim, 1, device=self.device)  # Generate a random latent vector
                 fake_waveform = self.generator(z).squeeze(0).cpu()  # Generate audio and remove batch dimension
                 fake_waveform = fake_waveform.clamp(-1, 1)  # Clamp values to [-1, 1]
 
@@ -162,7 +162,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a WaveGAN model.")
     parser.add_argument('--snd_dir', type=str, required=True, help="Path to the directory containing WAV files.")
     parser.add_argument('--sample_rate', type=int, default=44100, help="Sample rate of training data")
-    parser.add_argument('--waveform_scalar', type=int, default=7, help="Multiplier for waveform length")
     parser.add_argument('--epochs', type=int, default=100, help="Number of training epochs.")
     parser.add_argument('--batch_size', type=int, default=64, help="Batch size.")
     parser.add_argument('--learning_rate', type=float, default=0.0002, help="Learning rate.")
@@ -173,15 +172,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    wavegan = WaveGAN(
-        args.snd_dir,
-        args.sample_rate,
-        args.waveform_scalar,
-        args.epochs,
-        args.batch_size,
-        args.learning_rate,
-        args.model_dir
-    )
+    wavegan = WaveGAN(args.snd_dir, args.sample_rate, args.epochs, args.batch_size, args.learning_rate, args.model_dir)
 
     # Train the model
     wavegan.train()
