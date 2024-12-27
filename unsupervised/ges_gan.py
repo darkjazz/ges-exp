@@ -4,6 +4,7 @@ import torch.optim as optim
 import torchaudio
 import os
 import argparse
+import sys
 
 # Define the Generator class for WaveGAN
 class WaveGANGenerator(nn.Module):
@@ -48,12 +49,12 @@ class WaveGANDiscriminator(nn.Module):
 
 
 class WaveGAN:
-    def __init__(self, snd_dir, sample_rate, epochs, batch_size, learning_rate, model_dir):
+    def __init__(self, snd_dir, sample_rate, snd_dur, epochs, batch_size, learning_rate, model_dir):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"device is {self.device}")
         self.snd_dir = snd_dir
         self.epochs = epochs
         self.sample_rate = sample_rate
+        self.snd_dur = snd_dur
         self.z_dim = 100  # Latent space dimension
         self.waveform_length = sample_rate  # Length of audio waveform for 1 second
         self.dataset = self.load_wav_files()
@@ -81,7 +82,7 @@ class WaveGAN:
                     resample_transform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=self.sample_rate)
                     waveform = resample_transform(waveform)
 
-                if waveform.shape[1] >= self.waveform_length:
+                if waveform.shape[1] >= (self.waveform_length * self.snd_dur):
                     waveform = waveform[:, :self.waveform_length]
                 else:
                     waveform = torch.nn.functional.pad(waveform, (0, self.waveform_length - waveform.shape[1]))
@@ -90,7 +91,7 @@ class WaveGAN:
 
     def train(self):
         for epoch in range(self.epochs):
-            for real_data in self.dataloader:
+            for i, real_data in enumerate(self.dataloader):
                 batch_size = real_data.size(0)
 
                 # Move data to device
@@ -123,7 +124,9 @@ class WaveGAN:
                 self.g_optimizer.step()
 
                 # Logging
-                print(f"Epoch [{epoch+1}/{self.epochs}], D Loss: {d_loss.item()}, G Loss: {g_loss.item()}")
+                sys.stdout.write(f"\rEpoch [{epoch+1}/{self.epochs}] Batch [{i+1}/{len(self.dataloader)}] D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}")
+                sys.stdout.flush()
+            # print()  # Move to the next line after each epoch
 
     def generate_audio(self, num_samples, output_dir, duration=1, sample_rate=44100):
         """Generate audio samples from the trained generator and save them as .wav files."""
@@ -162,6 +165,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a WaveGAN model.")
     parser.add_argument('--snd_dir', type=str, required=True, help="Path to the directory containing WAV files.")
     parser.add_argument('--sample_rate', type=int, default=44100, help="Sample rate of training data")
+    parser.add_argument('--snd_dur', type=int, default=7, help="Duration of training files to load")
     parser.add_argument('--epochs', type=int, default=100, help="Number of training epochs.")
     parser.add_argument('--batch_size', type=int, default=64, help="Batch size.")
     parser.add_argument('--learning_rate', type=float, default=0.0002, help="Learning rate.")
@@ -172,7 +176,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    wavegan = WaveGAN(args.snd_dir, args.sample_rate, args.epochs, args.batch_size, args.learning_rate, args.model_dir)
+    wavegan = WaveGAN(
+        args.snd_dir,
+        args.sample_rate,
+        args.snd_dur,
+        args.epochs,
+        args.batch_size,
+        args.learning_rate,
+        args.model_dir
+    )
 
     # Train the model
     wavegan.train()
